@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>奧捷旅遊 · 全螢幕互動地圖</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  /* ===== 奧捷旅遊 · 全螢幕地圖 + 浮動面板設計系統 ===== */
+  :root{
+    --primary:#EA580C; --primary-ink:#FFFFFF;
+    --secondary:#0891B2; --secondary-ink:#FFFFFF;
+    --accent:#D97706;
+    --bg:#FFF7ED; --surface:#FFFFFF; --ink:#0F172A; --muted:#64748B;
+    --line:#FCEAE1; --line-strong:#F6D9C4;
+    --ok:#047857; --ok-bg:#ECFDF5; --ok-line:#6EE7B7;
+    --warn:#B45309; --warn-bg:#FFFBEB; --warn-line:#FCD34D;
+    --danger:#DC2626;
+    --radius:18px; --radius-sm:12px;
+    --shadow:0 6px 24px rgba(15,23,42,.08);
+    --shadow-lg:0 12px 44px rgba(15,23,42,.22);
+    --font:"Atkinson Hyperlegible","Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:var(--font);color:var(--ink);
+    background:#e8eef2;-webkit-font-smoothing:antialiased;line-height:1.6}
+  #app{display:flex;flex-direction:column;height:100vh}
+
+  /* ---- Header（浮動玻璃條） ---- */
+  header{background:linear-gradient(120deg,var(--primary),var(--accent));z-index:2000;
+    color:#fff;padding:12px 20px;flex:0 0 auto;
+    box-shadow:0 2px 14px rgba(234,88,12,.25);position:relative;z-index:30}
+  header h1{margin:0;font-size:19px;font-weight:700;letter-spacing:.5px;display:flex;align-items:center;gap:10px}
+  header h1 svg{width:23px;height:23px;flex:0 0 auto}
+  header p{margin:5px 0 0;font-size:12px;opacity:.92;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  header p svg{width:14px;height:14px;opacity:.85}
+  .head-actions{margin-top:9px;display:flex;gap:8px;flex-wrap:wrap}
+  .pill-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);
+    color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:999px;
+    font-size:12.5px;font-weight:600;padding:7px 13px;cursor:pointer;
+    transition:background .18s ease,transform .18s ease}
+  .pill-btn:hover{background:rgba(255,255,255,.32);transform:translateY(-1px)}
+  .pill-btn:active{transform:translateY(0)}
+  .pill-btn svg{width:15px;height:15px}
+
+  /* ---- 全螢幕地圖 + 浮動面板 ---- */
+  #mapView{position:relative;flex:1;min-height:0;overflow:hidden}
+  #body{position:absolute;inset:0}
+  #map{position:absolute;inset:0;z-index:1;background:#dfe6ea}
+
+  .float-panel{position:absolute;top:16px;bottom:16px;width:370px;max-width:44vw;z-index:1000;
+    background:rgba(255,255,255,.82);
+    backdrop-filter:blur(16px) saturate(1.25);-webkit-backdrop-filter:blur(16px) saturate(1.25);
+    border:1px solid rgba(255,255,255,.65);border-radius:var(--radius);
+    box-shadow:var(--shadow-lg);overflow-y:auto;padding:14px;z-index:15;
+    transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .2s ease}
+  #side{left:16px}
+  #infoPanel{right:16px}
+  #side.collapsed{transform:translateX(calc(-100% - 24px))}
+  #infoPanel.collapsed{transform:translateX(calc(100% + 24px))}
+
+  /* 收合後的重新打開把手（浮在地圖邊緣） */
+  .fp-tab{position:absolute;top:50%;transform:translateY(-50%);z-index:1001;
+    background:var(--primary);color:#fff;border:none;cursor:pointer;
+    padding:16px 6px;font-size:12px;font-weight:700;letter-spacing:1px;
+    writing-mode:vertical-rl;border-radius:0 12px 12px 0;box-shadow:var(--shadow-lg);display:none}
+  .fp-tab:hover{background:#C2410C}
+  #side .fp-tab{left:100%}
+  #side.collapsed .fp-tab{display:block}
+  #infoPanel .fp-tab{right:100%;border-radius:12px 0 0 12px}
+  #infoPanel.collapsed .fp-tab{display:block}
+
+  /* ---- 左欄卡片 ---- */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+    padding:13px 15px;margin-bottom:13px;box-shadow:var(--shadow)}
+  .card h2{margin:0 0 9px;font-size:14.5px;font-weight:700;color:var(--primary);
+    display:flex;align-items:center;gap:7px;border-bottom:2px solid var(--line);padding-bottom:6px}
+  .card h2 svg{width:16px;height:16px;color:var(--primary)}
+  .legend-item{display:flex;align-items:center;gap:9px;font-size:13px;margin:6px 0}
+  .dot{width:14px;height:14px;border-radius:50%;flex:0 0 auto;border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,.25)}
+  .small{font-size:11.5px;color:var(--muted)}
+
+  textarea{width:100%;height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+    border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:9px;resize:vertical;line-height:1.45;background:#FFFBF7}
+  input[type=text]{width:100%;padding:8px 10px;border:1px solid var(--line-strong);
+    border-radius:var(--radius-sm);font-family:inherit;font-size:13px;margin-top:5px;background:#FFFBF7}
+  input[type=text]:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(234,88,12,.18)}
+
+  button{font-family:inherit;font-size:13px;border:none;border-radius:var(--radius-sm);
+    padding:9px 14px;cursor:pointer;margin:5px 6px 0 0;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}
+  .btn-primary{background:var(--primary);color:var(--primary-ink);font-weight:600;box-shadow:var(--shadow)}
+  .btn-primary:hover{background:#C2410C;transform:translateY(-1px)}
+  .btn-ghost{background:#FFE9D6;color:var(--primary);font-weight:600}
+  .btn-ghost:hover{background:#FBD9BC}
+  .btn-red{background:var(--danger);color:#fff;font-weight:600}
+  .btn-red:hover{background:#B91C1C}
+
+  .warn{background:var(--warn-bg);border-left:4px solid var(--warn);padding:9px 12px;border-radius:8px;font-size:12.5px;margin:7px 0;line-height:1.55;color:#7C2D12}
+  .warn b{color:var(--danger)}
+  .ok{background:var(--ok-bg);border-left:4px solid var(--ok);padding:9px 12px;border-radius:8px;font-size:12.5px;margin:7px 0;line-height:1.55;color:#064E3B}
+  .ok b{color:var(--ok)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border-radius:var(--radius-sm);overflow:hidden}
+  th,td{border:1px solid var(--line);padding:7px;text-align:left}
+  th{background:var(--primary);color:#fff;font-weight:600}
+
+  /* 編輯：按天分群 */
+  .day-group{border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+  .day-head{background:linear-gradient(120deg,var(--secondary),#0E7490);color:#fff;font-weight:700;
+    padding:9px 12px;display:flex;justify-content:space-between;align-items:center;font-size:13.5px}
+  .day-head .cnt{font-size:11px;font-weight:500;opacity:.9}
+  .day-body{padding:9px 10px}
+  .pl-row{display:flex;gap:5px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .pl-row input,.pl-row select{padding:5px 7px;border:1px solid var(--line-strong);border-radius:9px;font-size:12px;font-family:inherit;background:#FFFBF7}
+  .pl-row input:focus,.pl-row select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(234,88,12,.16)}
+  .pl-row .i-name{width:128px}.pl-row .i-lat,.pl-row .i-lng{width:68px}.pl-row .i-type{width:74px}.pl-row .i-note{width:118px}
+  .pl-row .i-del{padding:3px 9px;font-size:11px;background:#FEE2E2;color:var(--danger);border-radius:8px;cursor:pointer;border:none}
+  .pl-row .i-del:hover{background:#FECACA}
+  .add-day{font-size:11.5px;padding:5px 11px;margin-top:3px;background:#E0F2FE;color:var(--secondary);font-weight:600;border-radius:999px;cursor:pointer;border:none}
+  .add-day:hover{background:#BAE6FD}
+  .msg{font-size:12.5px;font-weight:600;margin:6px 0;min-height:16px}
+  #editGroups{margin-top:4px}
+
+  /* 右欄攻略 */
+  .guide-scroll{padding:0}
+  #infoPanel .day{margin:0 0 13px;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+  #infoPanel .day-head{background:linear-gradient(120deg,var(--primary),var(--accent));color:#fff;padding:13px 16px}
+  #infoPanel .day-head .dnum{font-size:11px;opacity:.9;letter-spacing:2px;text-transform:uppercase}
+  #infoPanel .day-head h2{margin:2px 0 3px;font-size:18px;font-weight:700}
+  #infoPanel .day-head .meta{font-size:11.5px;opacity:.95}
+  #infoPanel .day-head .drive{margin-top:6px;font-size:11px;background:rgba(255,255,255,.2);padding:4px 9px;border-radius:8px;display:inline-block}
+  #infoPanel .spot{display:flex;gap:11px;padding:12px 16px;border-top:1px solid var(--line);cursor:pointer;transition:background .15s ease}
+  #infoPanel .spot:hover{background:#FFF1E6}
+  #infoPanel .spot:nth-child(odd){background:#FFFBF7}
+  #infoPanel .spot img{width:116px;height:88px;object-fit:cover;border-radius:10px;flex:0 0 116px;background:var(--line);box-shadow:var(--shadow)}
+  #infoPanel .spot .body{flex:1;min-width:0}
+  #infoPanel .spot h3{margin:0 0 3px;font-size:14.5px;color:var(--primary);font-weight:700}
+  #infoPanel .spot .tag{display:inline-block;font-size:10.5px;color:var(--secondary);background:#E0F2FE;border-radius:6px;padding:1px 8px;margin-bottom:4px;font-weight:600}
+  #infoPanel .spot p{margin:3px 0 0;font-size:12px;color:#334155;line-height:1.5}
+  #infoPanel .foot{margin:14px;padding:15px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+  #infoPanel .foot h2{color:var(--primary);font-size:16px;margin-top:0;font-weight:700}
+  #infoPanel .foot ul{margin:5px 0;padding-left:18px;font-size:12.5px}
+  #infoPanel .foot li{margin:4px 0}
+  #infoPanel .note{font-size:11px;color:var(--muted);text-align:center;margin:14px}
+  #infoPanel .day.hl{box-shadow:0 0 0 3px var(--primary)}
+
+  @media (max-width:1100px){#side,#infoPanel{width:330px;max-width:46vw}}
+  @media (max-width:780px){
+    #side,#infoPanel{width:88vw;max-width:88vw;top:12px;bottom:12px}
+    #side{left:12px}#infoPanel{right:12px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  /* ===== 景點 Lightbox 放大箱 ===== */
+  .lb-overlay{position:fixed;inset:0;background:rgba(15,23,42,.55);
+    backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;padding:24px;z-index:3000;
+    opacity:0;pointer-events:none;transition:opacity .2s ease}
+  .lb-overlay.lb-open{opacity:1;pointer-events:auto}
+  .lb-dialog{position:relative;background:var(--surface);border-radius:22px;max-width:880px;width:100%;
+    max-height:88vh;overflow:hidden;display:flex;flex-direction:row;
+    box-shadow:0 24px 80px rgba(0,0,0,.42);
+    transform:scale(.92) translateY(12px);opacity:0;
+    transition:transform .26s cubic-bezier(.34,1.4,.5,1),opacity .2s ease}
+  .lb-overlay.lb-open .lb-dialog{transform:scale(1) translateY(0);opacity:1}
+  .lb-img{width:46%;min-width:280px;object-fit:cover;background:var(--line);display:block}
+  .lb-body{padding:26px 28px;overflow-y:auto;flex:1;min-width:0}
+  .lb-body h2{margin:0 0 6px;font-size:24px;color:var(--primary);font-weight:700;line-height:1.25}
+  .lb-tag{display:inline-block;font-size:12px;color:var(--secondary);background:#E0F2FE;
+    border-radius:8px;padding:3px 11px;margin-bottom:14px;font-weight:600}
+  .lb-desc{font-size:15px;line-height:1.8;color:#334155;white-space:pre-line}
+  .lb-close{position:absolute;top:14px;right:14px;width:38px;height:38px;border-radius:50%;
+    background:rgba(255,255,255,.92);border:none;cursor:pointer;font-size:18px;color:#0F172A;
+    display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);z-index:2;transition:background .15s ease}
+  .lb-close:hover{background:#fff}
+  @media (max-width:720px){
+    .lb-dialog{flex-direction:column;max-height:92vh}
+    .lb-img{width:100%;height:230px;min-width:0}
+    .lb-body{padding:20px 20px 26px}
+  }
+  @media (prefers-reduced-motion:reduce){.lb-overlay,.lb-dialog{transition:none}}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.5 2 2-5.5L20 3l1 1L21 20 9 20z"/><path d="M21 3L9 15"/><path d="M15 5l4 4"/></svg>
+      🇨🇿🇦🇹 奧捷＋德國國王湖 · 自駕互動地圖
+    </h1>
+    <p>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg>
+      7 天自駕規劃 · 4 人 · 10 月賞楓 ｜ 藍＝景點，橘＝已訂房，紅＝需注意
+    </p>
+    <div class="head-actions">
+      <button class="pill-btn" onclick="toggleSide()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        <span>隱藏編輯欄</span>
+      </button>
+      <button class="pill-btn" onclick="toggleInfo()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        <span>隱藏攻略欄</span>
+      </button>
+    </div>
+  
+  </header>
+
+  <div id="mapView">
+    <div id="body">
+      <aside id="side" class="float-panel">
+        <button class="fp-tab" onclick="toggleSide()" aria-label="展開編輯欄">編輯欄</button>
+
+
+      <div class="card">
+        <h2>🧭 自駕路線（紅虛線）</h2>
+        <p class="small">布拉格(安德區) → 庫特納霍拉 → CK小鎮 → 哈修塔特 → 薩爾斯堡(郊區奧伊根多夫) → 國王湖 → 皮爾森 → 回布拉格(還車)</p>
+      </div>
+
+      <div class="card">
+        <h2>⚠️ 路線檢查 / 與訂房不符處</h2>
+        <div class="ok"><b>① 皮爾森住宿已補訂 ✅：</b>stay.md 已加 Courtyard Pilsen（萬怡酒店），10/24–10/25，地圖標記轉橘色。</div>
+        <div class="ok"><b>② 薩爾斯堡日期已對齊 ✅：</b>改為 10/22–10/24，與 D4 抵達夜吻合，不再「晚一天」，且 10/24 移動到皮爾森不衝突。</div>
+        <div class="warn"><b>③ 住宿在郊區：</b>薩爾斯堡那間在 <b>奧伊根多夫</b>（距市區 12km）；CK 那間在 <b>切爾尼采/Mojné 村</b>（距老城 5km）；布拉格在 <b>安德區</b>（非老城，地鐵可達、好停車）。</div>
+        <div class="warn"><b>④ Day 3 繞路：</b>布拉格→庫特納霍拉(東)→CK(西南)等於先往東再折返往西南，單日較趕；若時間緊可把庫特納霍拉改成布拉格出發前/後的半日遊。</div>
+        <div class="ok"><b>⑤ Day 7 順路：</b>皮爾森→卡爾什特因城堡→布拉格機場，卡爾什特因正好在回程上，安排合理 ✅</div>
+      </div>
+
+      <div class="card">
+        <h2>🚗 交通規劃：最方便又省錢</h2>
+        <div class="ok"><b>結論：4 人自駕最划算。</b>火車 4 人跨城票價高（布拉格↔薩爾斯堡單程每人約 €30–50 ×4），且 哈修塔特／國王湖／切爾尼采 大眾運輸不便，到了還是要租車。自駕全包約 <b>NT$7,000/人</b>（含租車＋全險＋油資＋過路費）。</div>
+        <table>
+          <tr><th>項目</th><th>建議 / 費用</th></tr>
+          <tr><td>租車</td><td>Skoda Kodiaq/Tiguan（7人座SUV）NT$15,000–26,000</td></tr>
+          <tr><td>全險 Zero Excess</td><td>NT$5,000</td></tr>
+          <tr><td>油資（約1000km）</td><td>NT$3,000–4,000</td></tr>
+          <tr><td>高速公路</td><td>NT$1,000（捷克車已含；<b>奧地利 Vignette 自購 10日 €11.4</b>；德國免）</td></tr>
+          <tr><td>停車</td><td>哈修塔特 付費場(P1/P2)+接駁；國王湖大停車場；奧伊根多夫/安德區 住宿附停車</td></tr>
+        </table>
+        <p class="small">必帶：台灣駕照正本＋國際駕照(IDP)＋護照＋本人信用卡。訂車時勾 <b>Cross-Border</b>（允許奧/德）。</p>
+      </div>
+
+      <div class="card">
+        <h2>🛣️ 每日自駕車程（OSRM 實算）</h2>
+        <p class="small">下為純行車時間，不含景點停留／遊湖／吃飯。全程總計約 <b>1,123 km / 15.3 h</b>（不含 D5 國王湖當日往返 1.6 h）。</p>
+        <table>
+          <tr><th>日</th><th>路線</th><th>距離</th><th>行車</th></tr>
+          <tr><td>D3 上</td><td>布拉格安德區 → 庫特納霍拉</td><td>83 km</td><td>1.2 h</td></tr>
+          <tr><td>D3 下</td><td>庫特納霍拉 → CK 小鎮</td><td>174 km</td><td>2.5 h</td></tr>
+          <tr><td>D4</td><td>CK → 哈修塔特 → 薩爾斯堡(奧伊根多夫)</td><td>275 km</td><td>4.4 h</td></tr>
+          <tr><td>D5</td><td>薩爾斯堡 ⇄ 國王湖（當日往返）</td><td>90 km</td><td>1.6 h</td></tr>
+          <tr><td>D6</td><td>薩爾斯堡 → 皮爾森</td><td>290 km</td><td>4.1 h</td></tr>
+          <tr><td>D7</td><td>皮爾森 → 卡爾什特因 → 布拉格機場</td><td>103 km</td><td>1.5 h</td></tr>
+        </table>
+        <div class="warn" style="margin-top:8px"><b>最長單段＝D6（4.1h，跨奧→捷）</b>；<b>D3 最趕</b>（當天 3.7h 在開車）。</div>
+      </div>
+
+      <div class="card">
+        <h2>🔀 D3 替代路線（省時版）</h2>
+        <p class="small">把庫特納霍拉從 D3 移到 <b>D2 布拉格半日遊</b>（來回 2.4h），D3 直接布拉格→CK：</p>
+        <table>
+          <tr><th>方案</th><th>D2</th><th>D3</th><th>當日總開車</th></tr>
+          <tr><td>原案</td><td>布拉格市區</td><td>布拉格→庫→CK（3.7h）</td><td>3.7 h ⚠</td></tr>
+          <tr><td>省時版</td><td>布拉格＋庫特納霍拉半日遊（2.4h）</td><td>布拉格→CK 直達（2.5h）</td><td>2.5 h ✅</td></tr>
+        </table>
+        <p class="small">省時版 D3 少開 1.2h，且 CK 當天下午更從容。要不要改用？改完我可重排地圖 Day 標記。</p>
+      </div>
+
+      <div class="card">
+        <h2>✏️ 編輯行程（按天分群）</h2>
+        <p class="small">下方依 Day 1 → 最後一天分群，每天一個區塊。直接改名稱/座標/類型(<code>景點</code>/<code>已訂房</code>/<code>未訂房</code>)/備註；每區可「＋本日加一筆」、每列可 ✕ 刪除。改完按「套用變更」即時更新地圖。</p>
+        <div id="editGroups"></div>
+        <div style="margin-top:10px">
+          <button class="btn-primary" onclick="applyEdits()">套用變更</button>
+          <button class="btn-ghost" onclick="resetEdits()">還原</button>
+        </div>
+        <p class="small" style="margin-top:8px">或按地址自動新增（需網路）：</p>
+        <input type="text" id="addr" placeholder="例如：哈修塔特 湖區">
+        <button class="btn-ghost" onclick="addByAddress()">🔍 查地址並加入</button>
+        <div style="margin-top:8px">
+          <button class="btn-ghost" onclick="downloadMap()">⬇️ 下載編輯後的網頁</button>
+        </div>
+        <p class="small" id="msg"></p>
+      </div>
+
+      <div class="card">
+        <h2>🏨 已訂房（來自 stay.md）</h2>
+        <table>
+          <tr><th>地點</th><th>地址</th><th>晚數</th></tr>
+          <tr><td>布拉格 安德區</td><td>Na Bělidle 31, Praha</td><td>2（10/19–10/21）</td></tr>
+          <tr><td>CK 切爾尼采</td><td>Černice 3, Mojné</td><td>1（10/21–10/22）</td></tr>
+          <tr><td>薩爾斯堡 奧伊根多夫</td><td>Schwaighofenberg 12, 5301</td><td>2（10/22–10/24）</td></tr>
+          <tr><td>皮爾森 萬怡酒店</td><td>Sady 5. Kvetna 57, Plzeň</td><td>1（10/24–10/25）</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>💰 住宿費用明細（來自 stay.md）</h2>
+        <table>
+          <tr><th>城市</th><th>日期</th><th>費用</th></tr>
+          <tr><td>布拉格</td><td>19–21</td><td>NT$8,821</td></tr>
+          <tr><td>CK 小鎮</td><td>21–22</td><td>NT$5,267</td></tr>
+          <tr><td>薩爾斯堡</td><td>22–24</td><td>NT$11,655</td></tr>
+          <tr><td>比爾森</td><td>24–25</td><td>NT$9,339</td></tr>
+          <tr><th>6 晚合計</th><th>—</th><th>NT$35,082</th></tr>
+        </table>
+        <p class="small">每人約 NT$8,770（不含城市稅）；加城市稅每人 6 晚約 +NT$180 → <b>每人住宿約 NT$9,000</b>。</p>
+      </div>
+
+      <div class="card">
+        <h2>⭐ 住宿評價（搜尋整理）</h2>
+        <table>
+          <tr><th>住宿</th><th>評分</th><th>重點</th></tr>
+          <tr><td>布拉格 安德區公寓</td><td><b>9.7</b>/10<br><span class="small">位置9.8·清潔9.9</span></td><td>近 Anděl 站、78㎡、設備新、CP值高</td></tr>
+          <tr><td>CK 切爾尼采公寓</td><td><b>8.8</b>/10<br><span class="small">103則·優秀</span></td><td>安靜村莊、空間大、極清潔、床好睡、免費停車</td></tr>
+          <tr><td>薩爾斯堡 奧伊根多夫</td><td><b>9.5</b>/10<br><span class="small">Booking·非凡</span></td><td>55㎡山景公寓、安靜、免費私人停車、距市區12km</td></tr>
+          <tr><td>皮爾森 萬怡酒店</td><td><b>9.1</b>/10<br><span class="small">Booking·TA 4.3</span></td><td>設施9.1·舒適9.3·人員9.5；房大床舒適、近市中心</td></tr>
+        </table>
+        <p class="small">來源：Booking / Tripadvisor / Hotels.com / Mappy（2026-08 搜尋）。四間評價皆優，無明顯負評。</p>
+      </div>
+
+      <div class="card">
+        <h2>📖 景點攻略</h2>
+        <p class="small">詳細景點介紹（含圖片、按 Day 1→7 分群、像旅遊書）已獨立成攻略頁：</p>
+        <a href="guide.html" class="btn-primary" style="display:inline-block;text-decoration:none;text-align:center">➡️ 打開景點攻略（guide.html）</a>
+        <p class="small" style="margin-top:8px">點地圖標記可直接看該點資訊彈窗；完整攻略請用上方按鈕。</p>
+      </div>
+
+    
+      </aside>
+      <div id="map"></div>
+      <aside id="infoPanel" class="float-panel">
+        <button class="fp-tab" onclick="toggleInfo()" aria-label="展開攻略欄">攻略</button>
+        <div class="guide-scroll">
+
+
+
+<header class="hero">
+  <h1>🇨🇿🇦🇹 奧捷＋德國國王湖 · 7天自駕攻略</h1>
+  <p>4 人同行 ｜ 10 月賞楓自駕 ｜ 布拉格 → CK → 哈修塔特 → 薩爾斯堡 → 國王湖 → 皮爾森</p>
+  <div class="chips">
+    <span class="chip">🚗 全程自駕</span>
+    <span class="chip">📅 7 天 6 夜</span>
+    <span class="chip">🍁 10月賞楓</span>
+    <span class="chip">👥 4 人</span>
+  </div>
+</header>
+<nav class="toc"><a href="#day1">Day 1</a><a href="#day2">Day 2</a><a href="#day3">Day 3</a><a href="#day4">Day 4</a><a href="#day5">Day 5</a><a href="#day6">Day 6</a><a href="#day7">Day 7</a></nav>
+
+<div class="day" id="day1">
+  <div class="day-head">
+    <div class="dnum">DAY 1 ｜ 10/19</div>
+    <h2>布拉格老城漫步</h2>
+    <div class="meta">4 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：市區步行，無自駕車程</div>
+  </div>
+  <div class="spot" id="spot-布拉格城堡" onclick="showSpotDetail('布拉格城堡')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Karl%C5%AFv_most_Praha%2C_Star%C3%A9_M%C4%9Bsto_20170810_007.jpg?width=800" alt="布拉格城堡" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/5/5e/Karl%C5%AFv_most_Praha%2C_Star%C3%A9_M%C4%9Bsto_20170810_007.jpg'"><div class="body"><h3>布拉格城堡</h3><span class="tag">Day1 景點</span><p>全世界最大的古城堡建築群，波希米亞王冠所在地。包含聖維特主教座堂、舊皇宮、黃金小巷，可俯瞰整個布拉格紅瓦屋頂。</p></div></div><div class="spot" id="spot-查理大橋" onclick="showSpotDetail('查理大橋')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Prague_07-2016_view_from_Lesser_Town_Tower_of_Charles_Bridge_img3.jpg?width=800" alt="查理大橋" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/2/22/Prague_07-2016_view_from_Lesser_Town_Tower_of_Charles_Bridge_img3.jpg'"><div class="body"><h3>查理大橋</h3><span class="tag">Day1 景點</span><p>14世紀石橋橫跨伏爾塔瓦河，兩端各30尊巴洛克聖徒雕像。清晨與黃昏光線最美、人也最少。</p></div></div><div class="spot" id="spot-老城廣場＋天文鐘" onclick="showSpotDetail('老城廣場＋天文鐘')"><div class="body"><h3>老城廣場＋天文鐘</h3><span class="tag">Day1 景點</span><p>布拉格心臟地帶，周圍是彩繪房屋與提恩教堂。天文鐘每整點報時玩偶秀（整點人潮最多，建議避開）。</p></div></div><div class="spot" id="spot-住宿·布拉格安德區公寓" onclick="showSpotDetail('住宿·布拉格安德區公寓')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Prague_%286365119737%29.jpg?width=800" alt="住宿·布拉格安德區公寓" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/a/a7/Prague_%286365119737%29.jpg'"><div class="body"><h3>住宿·布拉格安德區公寓</h3><span class="tag">Na Bělidle 31, Praha 5（已訂 10/19–10/21）</span><p>評價極佳（位置9.8/清潔9.9/CP值9.7）。步行5分鐘到 Anděl 捷運站，78㎡ 大空間、設備新。非老城但交通與停車便利。</p></div></div>
+</div>
+
+<div class="day" id="day2">
+  <div class="day-head">
+    <div class="dnum">DAY 2 ｜ 10/20</div>
+    <h2>城南＋河景</h2>
+    <div class="meta">4 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：市區移動，傍晚伏爾塔瓦河遊船</div>
+  </div>
+  <div class="spot" id="spot-聖維特主教座堂" onclick="showSpotDetail('聖維特主教座堂')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/PragueCathedral03.jpg?width=800" alt="聖維特主教座堂" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/f/f4/PragueCathedral03.jpg'"><div class="body"><h3>聖維特主教座堂</h3><span class="tag">Day2 景點</span><p>布拉格城堡內的哥德式代表作，雙塔尖頂是布拉格天際線標誌，彩繪玻璃窗與聖母小堂的寶石镶嵌極美。</p></div></div><div class="spot" id="spot-佩特任觀景塔" onclick="showSpotDetail('佩特任觀景塔')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Pet%C5%99%C3%ADnsk%C3%A1_rozhledna%2C_Prague.jpg?width=800" alt="佩特任觀景塔" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/e/e8/Pet%C5%99%C3%ADnsk%C3%A1_rozhledna%2C_Prague.jpg'"><div class="body"><h3>佩特任觀景塔</h3><span class="tag">Day2 景點</span><p>迷你版艾菲爾鐵塔，登頂可360°俯瞰布拉格與伏爾塔瓦河。旁有迷宮與玫瑰園，適合散步。</p></div></div><div class="spot" id="spot-跳舞的房子" onclick="showSpotDetail('跳舞的房子')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Tanzendes_Haus_2023.jpg?width=800" alt="跳舞的房子" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/9/97/Tanzendes_Haus_2023.jpg'"><div class="body"><h3>跳舞的房子</h3><span class="tag">Day2 景點</span><p>1990年代解構主義地標，由美國建築師 Gehry 設計，兩棟樓像一對舞者。頂樓法式餐廳景觀佳。</p></div></div><div class="spot" id="spot-伏爾塔瓦河遊船" onclick="showSpotDetail('伏爾塔瓦河遊船')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Prague_skyline_view.jpg?width=800" alt="伏爾塔瓦河遊船" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/5/50/Prague_skyline_view.jpg'"><div class="body"><h3>伏爾塔瓦河遊船</h3><span class="tag">Day2 遊船碼頭</span><p>從河面看布拉格城堡與查理大橋視角獨特。日間或黃昏晚餐船皆可，全程約1小時。</p></div></div>
+</div>
+
+<div class="day" id="day3">
+  <div class="day-head">
+    <div class="dnum">DAY 3 ｜ 10/21</div>
+    <h2>東進庫特納霍拉 → CK 山城</h2>
+    <div class="meta">5 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：布拉格→庫特納霍拉 83km/1.2h → CK 174km/2.5h（當日約 257km/3.7h）</div>
+  </div>
+  <div class="spot" id="spot-人骨教堂" onclick="showSpotDetail('人骨教堂')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Kostnice_Sedlec.JPG?width=800" alt="人骨教堂" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/a/ab/Kostnice_Sedlec.JPG'"><div class="body"><h3>人骨教堂</h3><span class="tag">Day3 庫特納霍拉（塞德萊茨骨堂）</span><p>14世紀黑死病後，修士用約4萬具遺骨裝飾教堂：骨製吊燈、盾牌、金字塔。庫特納霍拉必訪奇觀。</p></div></div><div class="spot" id="spot-聖芭芭拉教堂" onclick="showSpotDetail('聖芭芭拉教堂')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/KUTNA_HORA_%28js%29_11.jpg?width=800" alt="聖芭芭拉教堂" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/c/c7/KUTNA_HORA_%28js%29_11.jpg'"><div class="body"><h3>聖芭芭拉教堂</h3><span class="tag">Day3 庫特納霍拉</span><p>聯合國教科文遺產，晚期哥德式傑作，獨特扇形肋拱頂。曾是銀礦城象徵，周圍葡萄園景觀優美。</p></div></div><div class="spot" id="spot-CK小鎮古城" onclick="showSpotDetail('CK小鎮古城')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg?width=800" alt="CK小鎮古城" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/6/63/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg'"><div class="body"><h3>CK小鎮古城</h3><span class="tag">Day3 CK 老城</span><p>捷克保存最完整的中世紀山城，被 Vltava 河環抱，1992年列入世界遺產。石板巷、彩繪老屋、河畔拍照絕美。</p></div></div><div class="spot" id="spot-彩繪塔樓" onclick="showSpotDetail('彩繪塔樓')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/%C4%8Cesk%C3%BD_Krumlov%2C_z%C3%A1mek_cel%C3%BD_z_vyhl%C3%ADdky.jpg?width=800" alt="彩繪塔樓" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/4/4f/%C4%8Cesk%C3%BD_Krumlov%2C_z%C3%A1mek_cel%C3%BD_z_vyhl%C3%ADdky.jpg'"><div class="body"><h3>彩繪塔樓</h3><span class="tag">Day3 CK 城堡</span><p>CK城堡群的地標，15世紀高塔，外牆繽紛文藝復興彩繪。登頂可看老城全貌與河谷。</p></div></div><div class="spot" id="spot-住宿·CK切爾尼采公寓" onclick="showSpotDetail('住宿·CK切爾尼采公寓')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg?width=800" alt="住宿·CK切爾尼采公寓" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/6/63/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg'"><div class="body"><h3>住宿·CK切爾尼采公寓</h3><span class="tag">Černice 3, Mojné（已訂 10/21–10/22，距老城5km）</span><p>評價8.8/10「優秀」（103則）。安靜村莊、空間大、極清潔、現代化、床好睡、廚房設備齊全、免費停車。距 CK 老城車程約5–8分鐘。</p></div></div>
+</div>
+
+<div class="day" id="day4">
+  <div class="day-head">
+    <div class="dnum">DAY 4 ｜ 10/22</div>
+    <h2>跨國 → 哈修塔特 → 薩爾斯堡</h2>
+    <div class="meta">4 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：CK→哈修塔特→薩爾斯堡 275km/4.4h</div>
+  </div>
+  <div class="spot" id="spot-哈修塔特湖區" onclick="showSpotDetail('哈修塔特湖區')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Hallstatt_-_Zentrum_.JPG?width=800" alt="哈修塔特湖區" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/b/b0/Hallstatt_-_Zentrum_.JPG'"><div class="body"><h3>哈修塔特湖區</h3><span class="tag">Day4 湖區</span><p>奧地利上奧州鹽礦小鎮，湖畔木屋與雪山倒影被譽為「世界最美小鎮」。10月湖面平靜、山坡開始轉黃賞楓佳。</p></div></div><div class="spot" id="spot-哈修塔特觀景台" onclick="showSpotDetail('哈修塔特觀景台')"><div class="body"><h3>哈修塔特觀景台</h3><span class="tag">Day4 觀景台</span><p>「Skywalk」懸空平台在山上，俯瞰整個哈修塔特湖與小鎮。搭纜車上山再步行約10分鐘。</p></div></div><div class="spot" id="spot-薩爾斯堡老城" onclick="showSpotDetail('薩爾斯堡老城')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Salzburg_%2848489551981%29.jpg?width=800" alt="薩爾斯堡老城" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/9/91/Salzburg_%2848489551981%29.jpg'"><div class="body"><h3>薩爾斯堡老城</h3><span class="tag">Day4 老城</span><p>莫札特故鄉，巴洛克老城與城堡山為世界遺產。《真善美》拍攝地。糧食胡同、大教堂、城堡要塞必逛。</p></div></div><div class="spot" id="spot-住宿·薩爾斯堡奧伊根多夫" onclick="showSpotDetail('住宿·薩爾斯堡奧伊根多夫')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Eugendorf_%28Zentrum%29.JPG?width=800" alt="住宿·薩爾斯堡奧伊根多夫" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/3/34/Eugendorf_%28Zentrum%29.JPG'"><div class="body"><h3>住宿·薩爾斯堡奧伊根多夫</h3><span class="tag">Schwaighofenberg 12, 5301（已訂 10/22–10/24，距市區12km）</span><p>評價9.5/10「非凡」（Booking）、Mappy 9.7。55㎡ 安靜公寓、山景漂亮、免費私人停車。距薩爾斯堡市區車程約12–15分鐘。</p></div></div>
+</div>
+
+<div class="day" id="day5">
+  <div class="day-head">
+    <div class="dnum">DAY 5 ｜ 10/23</div>
+    <h2>德國國王湖天氣巡禮</h2>
+    <div class="meta">4 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：薩爾斯堡⇄國王湖 90km/1.6h（當日往返，含鷹巢）</div>
+  </div>
+  <div class="spot" id="spot-國王湖" onclick="showSpotDetail('國王湖')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/K%C3%B6nigsee_in_Bayern.jpg?width=800" alt="國王湖" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/5/59/K%C3%B6nigsee_in_Bayern.jpg'"><div class="body"><h3>國王湖</h3><span class="tag">Day5 遊船</span><p>德國最深最乾淨的冰川湖，翡翠綠水、三面峭壁。搭電動遊船到聖巴托洛繆紅頂教堂，船長會吹號角回音。</p></div></div><div class="spot" id="spot-紅頂教堂（聖巴托洛繆）" onclick="showSpotDetail('紅頂教堂（聖巴托洛繆）')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/K%C3%B6nigsee_in_Bayern.jpg?width=800" alt="紅頂教堂（聖巴托洛繆）" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/5/59/K%C3%B6nigsee_in_Bayern.jpg'"><div class="body"><h3>紅頂教堂（聖巴托洛繆）</h3><span class="tag">Day5 湖中教堂</span><p>湖畔孤島上的鮮紅圓頂教堂，建於羅曼式，背景是屏風山壁。國王湖遊船終點，拍照最經典角度。</p></div></div><div class="spot" id="spot-上湖步道" onclick="showSpotDetail('上湖步道')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Obersee_9.jpg?width=800" alt="上湖步道" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/e/ec/Obersee_9.jpg'"><div class="body"><h3>上湖步道</h3><span class="tag">Day5 步道</span><p>從紅頂教堂續步行約30–45分到 Obersee 上湖，人更少、更靜謐，湖端小木屋咖啡可休息。平坦好走。</p></div></div><div class="spot" id="spot-鷹巢" onclick="showSpotDetail('鷹巢')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/4_Kehlsteinhaus_Orl%C3%AD_hn%C3%ADzdo_2026.jpg?width=800" alt="鷹巢" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/a/ad/4_Kehlsteinhaus_Orl%C3%AD_hn%C3%ADzdo_2026.jpg'"><div class="body"><h3>鷹巢</h3><span class="tag">Day5 天候允許</span><p>希特勒山頂行館，海拔1834m，現為餐廳。乘巴士＋升降機上山，天氣好可看阿爾卑斯全景。冬季可能封山，視天候。</p></div></div>
+</div>
+
+<div class="day" id="day6">
+  <div class="day-head">
+    <div class="dnum">DAY 6 ｜ 10/24</div>
+    <h2>回程捷克 → 皮爾森啤酒之鄉</h2>
+    <div class="meta">3 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：薩爾斯堡→皮爾森 290km/4.1h</div>
+  </div>
+  <div class="spot" id="spot-皮爾森啤酒廠" onclick="showSpotDetail('皮爾森啤酒廠')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Plze%C5%88_Montage_I.png?width=800" alt="皮爾森啤酒廠" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png'"><div class="body"><h3>皮爾森啤酒廠</h3><span class="tag">Day6 參觀</span><p>Pilsner Urquell 發源地（1842年發明皮爾森啤酒）。可參觀古法釀造窖、試飲未過濾鮮啤，導覽約1.5小時。</p></div></div><div class="spot" id="spot-皮爾森市區" onclick="showSpotDetail('皮爾森市區')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Plze%C5%88_Montage_I.png?width=800" alt="皮爾森市區" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png'"><div class="body"><h3>皮爾森市區</h3><span class="tag">Day6 市區</span><p>西波希米亞重鎮，共和國廣場是歐洲最大古老廣場之一，聖巴爾托洛繆大教堂高塔可登。</p></div></div><div class="spot" id="spot-住宿·皮爾森萬怡酒店" onclick="showSpotDetail('住宿·皮爾森萬怡酒店')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Plze%C5%88_Montage_I.png?width=800" alt="住宿·皮爾森萬怡酒店" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png'"><div class="body"><h3>住宿·皮爾森萬怡酒店</h3><span class="tag">Courtyard Pilsen, Sady 5. Kvetna 57（已訂 10/24–10/25）</span><p>萬怡（Marriott）評價高：Booking 設施9.1/舒適9.3/人員9.5；Tripadvisor 4.3（529則）。位置佳、房大床舒適、現代化、近市中心與景點。</p></div></div>
+</div>
+
+<div class="day" id="day7">
+  <div class="day-head">
+    <div class="dnum">DAY 7 ｜ 10/25</div>
+    <h2>卡爾什特因城堡 → 還車返台</h2>
+    <div class="meta">2 個景點 / 住宿</div>
+    <div class="drive">🚗 今日車程：皮爾森→卡爾什特因→機場 103km/1.5h</div>
+  </div>
+  <div class="spot" id="spot-卡爾什特因城堡" onclick="showSpotDetail('卡爾什特因城堡')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Burg_Karlstein_-_Karl%C5%A1tejn_-_panoramio.jpg?width=800" alt="卡爾什特因城堡" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/c/c9/Burg_Karlstein_-_Karl%C5%A1tejn_-_panoramio.jpg'"><div class="body"><h3>卡爾什特因城堡</h3><span class="tag">Day7 回程順路</span><p>14世紀查理四世避暑與存放王冠的城堡，哥德式高聳於山腰，周圍葡萄園。從布拉格回程必停，導覽需預約。</p></div></div><div class="spot" id="spot-布拉格機場（還車）" onclick="showSpotDetail('布拉格機場（還車）')"><img src="https://commons.wikimedia.org/wiki/Special:FilePath/Prague_%286365119737%29.jpg?width=800" alt="布拉格機場（還車）" loading="lazy" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/a/a7/Prague_%286365119737%29.jpg'"><div class="body"><h3>布拉格機場（還車）</h3><span class="tag">Day7 還車搭機</span><p>布拉格瓦茨拉夫哈維爾機場（PRG）。租車還車櫃檯在停車場區，建議預留還車與出境時間。</p></div></div>
+</div>
+
+<section class="foot">
+  <h2>📌 實用資訊</h2>
+  <ul>
+    <li><b>自駕租車：</b>4人含跨國（Cross-Border 允許奧/德），全包約 NT$7,000/人（租車＋全險＋油資＋過路費）。</li>
+    <li><b>奧地利 Vignette 貼紙：</b>10日 €11.4（網購或加油站），貼擋風玻璃；德國免費。</li>
+    <li><b>停車：</b>哈修塔特付費場(P1/P2)+接駁；國王湖大停車場；奧伊根多夫/安德區住宿附停車。</li>
+    <li><b>住宿評價：</b>四間皆優（布拉格9.7 / CK 8.8 / 薩爾斯堡9.5 / 皮爾森9.1），無明顯負評。</li>
+    <li><b>必帶：</b>台灣駕照正本＋國際駕照(IDP)＋護照＋本人信用卡。</li>
+  </ul>
+  <p class="note">日期以 10/19 出發推算（D1=10/19…D7=10/25）。地圖與可編輯版本請見 map.html（本頁即互動地圖）。</p>
+</section>
+<p class="note">本攻略由 map.html 資料自動產生 ｜ 圖片來源：Wikimedia Commons（免費授權）</p>
+
+    
+  
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox" class="lb-overlay" role="dialog" aria-modal="true" aria-label="景點詳細介紹" onclick="if(event.target===this)closeLightbox()">
+  <div class="lb-dialog">
+    <button class="lb-close" onclick="closeLightbox()" aria-label="關閉">✕</button>
+    <img class="lb-img" id="lbImg" src="" alt="">
+    <div class="lb-body">
+      <h2 id="lbTitle"></h2>
+      <span class="lb-tag" id="lbTag"></span>
+      <p class="lb-desc" id="lbDesc"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+
+function toggleSide(){
+  const s=document.getElementById('side'), b=document.querySelector('.hideLBtn');
+  const lb=document.querySelectorAll('.head-actions .pill-btn')[0];
+  if(s.classList.contains('collapsed')){ s.classList.remove('collapsed'); if(lb) lb.querySelector('span').textContent='隱藏編輯欄'; }
+  else { s.classList.add('collapsed'); if(lb) lb.querySelector('span').textContent='顯示編輯欄'; }
+  if(window.map && typeof window.map.invalidateSize==='function') setTimeout(()=>window.map.invalidateSize(), 50);
+}
+function toggleInfo(){
+  const ip=document.getElementById('infoPanel');
+  const rb=document.querySelectorAll('.head-actions .pill-btn')[1];
+  if(ip.classList.contains('collapsed')){ ip.classList.remove('collapsed'); if(rb) rb.querySelector('span').textContent='隱藏攻略欄'; }
+  else { ip.classList.add('collapsed'); if(rb) rb.querySelector('span').textContent='顯示攻略欄'; }
+}
+function showSpotDetail(name){
+  const ip=document.getElementById('infoPanel');
+  if(ip) ip.classList.remove('collapsed');
+  const el=document.getElementById('spot-'+name);
+  if(el){ if(el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'center'}); const days=ip?ip.querySelectorAll('.day'):[]; days.forEach(d=>d.classList.remove('hl')); el.classList.add('hl'); setTimeout(()=>el.classList.remove('hl'),2500); }
+  openLightbox(name);
+  if(window.map && typeof window.map.invalidateSize==='function') setTimeout(()=>window.map.invalidateSize(),50);
+}
+function openLightbox(name){
+  const p=PLACES.find(x=>x.name===name); if(!p) return;
+  document.getElementById('lbImg').src = IMG[name]||'';
+  document.getElementById('lbImg').alt = p.name;
+  document.getElementById('lbTitle').textContent = p.name;
+  document.getElementById('lbTag').textContent = 'Day '+(p.day||'?')+' ｜ '+(TYPE_MAP[p.type]||p.type);
+  document.getElementById('lbDesc').textContent = (p.desc||p.note||'（暫無詳細介紹）');
+  document.getElementById('lightbox').classList.add('lb-open');
+}
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('lb-open'); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeLightbox(); });
+/* ===PLACES_START=== */
+const PLACES = [
+  // ---- 布拉格 Day1-2 ----
+  {name:"布拉格城堡", lat:50.0906, lng:14.3996, type:"spot", day:1, note:"Day1 景點", desc:"全世界最大的古城堡建築群，波希米亞王冠所在地。包含聖維特主教座堂、舊皇宮、黃金小巷，可俯瞰整個布拉格紅瓦屋頂。"},
+  {name:"聖維特主教座堂", lat:50.0901, lng:14.4000, type:"spot", day:2, note:"Day2 景點", desc:"布拉格城堡內的哥德式代表作，雙塔尖頂是布拉格天際線標誌，彩繪玻璃窗與聖母小堂的寶石镶嵌極美。"},
+  {name:"查理大橋", lat:50.0865, lng:14.4117, type:"spot", day:1, note:"Day1 景點", desc:"14世紀石橋橫跨伏爾塔瓦河，兩端各30尊巴洛克聖徒雕像。清晨與黃昏光線最美、人也最少。"},
+  {name:"老城廣場＋天文鐘", lat:50.0875, lng:14.4205, type:"spot", day:1, note:"Day1 景點", desc:"布拉格心臟地帶，周圍是彩繪房屋與提恩教堂。天文鐘每整點報時玩偶秀（整點人潮最多，建議避開）。"},
+  {name:"佩特任觀景塔", lat:50.0800, lng:14.4040, type:"spot", day:2, note:"Day2 景點", desc:"迷你版艾菲爾鐵塔，登頂可360°俯瞰布拉格與伏爾塔瓦河。旁有迷宮與玫瑰園，適合散步。"},
+  {name:"跳舞的房子", lat:50.0755, lng:14.4141, type:"spot", day:2, note:"Day2 景點", desc:"1990年代解構主義地標，由美國建築師 Gehry 設計，兩棟樓像一對舞者。頂樓法式餐廳景觀佳。"},
+  {name:"伏爾塔瓦河遊船", lat:50.0910, lng:14.4150, type:"spot", day:2, note:"Day2 遊船碼頭", desc:"從河面看布拉格城堡與查理大橋視角獨特。日間或黃昏晚餐船皆可，全程約1小時。"},
+  {name:"住宿·布拉格安德區公寓", lat:50.0756, lng:14.4050, type:"stay", day:1, note:"Na Bělidle 31, Praha 5（已訂 10/19–10/21）", desc:"評價極佳（位置9.8/清潔9.9/CP值9.7）。步行5分鐘到 Anděl 捷運站，78㎡ 大空間、設備新。非老城但交通與停車便利。"},
+
+  // ---- Day3 庫特納霍拉 + CK ----
+  {name:"人骨教堂", lat:49.9550, lng:15.2858, type:"spot", day:3, note:"Day3 庫特納霍拉（塞德萊茨骨堂）", desc:"14世紀黑死病後，修士用約4萬具遺骨裝飾教堂：骨製吊燈、盾牌、金字塔。庫特納霍拉必訪奇觀。"},
+  {name:"聖芭芭拉教堂", lat:49.9456, lng:15.2669, type:"spot", day:3, note:"Day3 庫特納霍拉", desc:"聯合國教科文遺產，晚期哥德式傑作，獨特扇形肋拱頂。曾是銀礦城象徵，周圍葡萄園景觀優美。"},
+  {name:"CK小鎮古城", lat:48.8127, lng:14.3147, type:"spot", day:3, note:"Day3 CK 老城", desc:"捷克保存最完整的中世紀山城，被 Vltava 河環抱，1992年列入世界遺產。石板巷、彩繪老屋、河畔拍照絕美。"},
+  {name:"彩繪塔樓", lat:48.8146, lng:14.3160, type:"spot", day:3, note:"Day3 CK 城堡", desc:"CK城堡群的地標，15世紀高塔，外牆繽紛文藝復興彩繪。登頂可看老城全貌與河谷。"},
+  {name:"住宿·CK切爾尼采公寓", lat:48.8460, lng:14.3220, type:"stay", day:3, note:"Černice 3, Mojné（已訂 10/21–10/22，距老城5km）", desc:"評價8.8/10「優秀」（103則）。安靜村莊、空間大、極清潔、現代化、床好睡、廚房設備齊全、免費停車。距 CK 老城車程約5–8分鐘。"},
+
+  // ---- Day4 CK → 哈修塔特 → 薩爾斯堡 ----
+  {name:"哈修塔特湖區", lat:47.5622, lng:13.6493, type:"spot", day:4, note:"Day4 湖區", desc:"奧地利上奧州鹽礦小鎮，湖畔木屋與雪山倒影被譽為「世界最美小鎮」。10月湖面平靜、山坡開始轉黃賞楓佳。"},
+  {name:"哈修塔特觀景台", lat:47.5547, lng:13.6497, type:"spot", day:4, note:"Day4 觀景台", desc:"「Skywalk」懸空平台在山上，俯瞰整個哈修塔特湖與小鎮。搭纜車上山再步行約10分鐘。"},
+  {name:"薩爾斯堡老城", lat:47.7989, lng:13.0466, type:"spot", day:4, note:"Day4 老城", desc:"莫札特故鄉，巴洛克老城與城堡山為世界遺產。《真善美》拍攝地。糧食胡同、大教堂、城堡要塞必逛。"},
+  {name:"住宿·薩爾斯堡奧伊根多夫", lat:47.8530, lng:13.0850, type:"stay", day:4, note:"Schwaighofenberg 12, 5301（已訂 10/22–10/24，距市區12km）", desc:"評價9.5/10「非凡」（Booking）、Mappy 9.7。55㎡ 安靜公寓、山景漂亮、免費私人停車。距薩爾斯堡市區車程約12–15分鐘。"},
+
+  // ---- Day5 國王湖 ----
+  {name:"國王湖", lat:47.5895, lng:12.9610, type:"spot", day:5, note:"Day5 遊船", desc:"德國最深最乾淨的冰川湖，翡翠綠水、三面峭壁。搭電動遊船到聖巴托洛繆紅頂教堂，船長會吹號角回音。"},
+  {name:"紅頂教堂（聖巴托洛繆）", lat:47.5700, lng:12.9710, type:"spot", day:5, note:"Day5 湖中教堂", desc:"湖畔孤島上的鮮紅圓頂教堂，建於羅曼式，背景是屏風山壁。國王湖遊船終點，拍照最經典角度。"},
+  {name:"上湖步道", lat:47.5460, lng:12.9680, type:"spot", day:5, note:"Day5 步道", desc:"從紅頂教堂續步行約30–45分到 Obersee 上湖，人更少、更靜謐，湖端小木屋咖啡可休息。平坦好走。"},
+  {name:"鷹巢", lat:47.6105, lng:13.0370, type:"spot", day:5, note:"Day5 天候允許", desc:"希特勒山頂行館，海拔1834m，現為餐廳。乘巴士＋升降機上山，天氣好可看阿爾卑斯全景。冬季可能封山，視天候。"},
+
+  // ---- Day6 薩爾斯堡 → 皮爾森 ----
+  {name:"皮爾森啤酒廠", lat:49.6736, lng:13.3813, type:"spot", day:6, note:"Day6 參觀", desc:"Pilsner Urquell 發源地（1842年發明皮爾森啤酒）。可參觀古法釀造窖、試飲未過濾鮮啤，導覽約1.5小時。"},
+  {name:"皮爾森市區", lat:49.7383, lng:13.3736, type:"spot", day:6, note:"Day6 市區", desc:"西波希米亞重鎮，共和國廣場是歐洲最大古老廣場之一，聖巴爾托洛繆大教堂高塔可登。"},
+  {name:"住宿·皮爾森萬怡酒店", lat:49.7487, lng:13.3818, type:"stay", day:6, note:"Courtyard Pilsen, Sady 5. Kvetna 57（已訂 10/24–10/25）", desc:"萬怡（Marriott）評價高：Booking 設施9.1/舒適9.3/人員9.5；Tripadvisor 4.3（529則）。位置佳、房大床舒適、現代化、近市中心與景點。"},
+
+  // ---- Day7 回布拉格 ----
+  {name:"卡爾什特因城堡", lat:49.9397, lng:14.1889, type:"spot", day:7, note:"Day7 回程順路", desc:"14世紀查理四世避暑與存放王冠的城堡，哥德式高聳於山腰，周圍葡萄園。從布拉格回程必停，導覽需預約。"},
+  {name:"布拉格機場（還車）", lat:50.1008, lng:14.2633, type:"spot", day:7, note:"Day7 還車搭機", desc:"布拉格瓦茨拉夫哈維爾機場（PRG）。租車還車櫃檯在停車場區，建議預留還車與出境時間。"}
+];
+/* ===PLACES_END=== */
+
+/* ===ROUTE_START=== */
+const ROUTE = [
+  "住宿·布拉格安德區公寓",
+  "人骨教堂",
+  "CK小鎮古城",
+  "哈修塔特湖區",
+  "薩爾斯堡老城",
+  "國王湖",
+  "皮爾森市區",
+  "卡爾什特因城堡",
+  "布拉格機場（還車）"
+];
+/* ===ROUTE_END=== */
+
+const COLORS = {spot:"#2980b9", stay:"#e67e22", stay_missing:"#c0392b"};
+
+const map = L.map('map', {zoomControl:true}).setView([49.0,14.0], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, attribution:'© OpenStreetMap'
+}).addTo(map);
+
+let markersLayer = L.layerGroup().addTo(map);
+let routeLine = null;
+
+function render(){
+  markersLayer.clearLayers();
+  PLACES.forEach((p, idx)=>{
+    const color = COLORS[p.type] || "#555";
+    // 用可拖動的 marker（自訂圖標顏色）
+    const icon = L.divIcon({
+      className:'',
+      html:`<div style="width:${p.type.startsWith('stay')?20:14}px;height:${p.type.startsWith('stay')?20:14}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px #999;"></div>`,
+      iconSize:[p.type.startsWith('stay')?20:14, p.type.startsWith('stay')?20:14],
+      iconAnchor:[p.type.startsWith('stay')?10:7, p.type.startsWith('stay')?10:7]
+    });
+    const m = L.marker([p.lat,p.lng], {icon, draggable:true, title:p.name});
+    m._idx = idx; m._pname = p.name;
+    m.on('click', ()=>showSpotDetail(p.name));
+    const popupHtml = `<b>${escHtml(p.name)}</b><br><span style="color:#EA580C">Day ${p.day||'?'} ｜ ${TYPE_MAP[p.type]||p.type}</span><br><span style="color:#555;font-size:12px;display:block;max-width:240px;white-space:normal">${escHtml(p.note||'')}</span>`+
+      (p.desc?`<span style="display:block;max-width:240px;white-space:normal;margin-top:6px;font-size:12.5px;line-height:1.5">${escHtml(p.desc)}</span>`:'')+
+      `<span style="display:block;margin-top:6px;color:#999;font-size:11px">💡 可拖動標記調整位置；改完按「套用變更」儲存</span>`;
+    m.bindPopup(popupHtml);
+    m.on('dragend', e=>{
+      const ll = e.target.getLatLng();
+      const i = e.target._idx;
+      if(PLACES[i]){ PLACES[i].lat = +ll.lat.toFixed(4); PLACES[i].lng = +ll.lng.toFixed(4); buildEditor(); }
+    });
+    markersLayer.addLayer(m);
+  });
+  // route line
+  if(routeLine) map.removeLayer(routeLine);
+  const pts = ROUTE.map(name=>{
+    const f = PLACES.find(p=>p.name===name);
+    return f ? [f.lat,f.lng] : null;
+  }).filter(Boolean);
+  if(pts.length>1){
+    routeLine = L.polyline(pts, {color:'#c0392b', weight:3, dashArray:'8,6', opacity:.8}).addTo(map);
+  }
+}
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// 點地圖空白處新增標記
+map.on('click', e=>{
+  const idx = PLACES.length;
+  PLACES.push({name:"新地點"+(idx+1), lat:+e.latlng.lat.toFixed(4), lng:+e.latlng.lng.toFixed(4), type:"spot", day:maxDay(), note:"點地圖新增", desc:""});
+  buildEditor();
+  render();
+  setMsg("📍 已在地圖上新增標記（第 "+(idx+1)+" 筆），請在表格填名稱/類型，按「套用變更」儲存", false);
+});
+
+// ---- 表格編輯器 ----
+const TYPE_MAP = {spot:"景點", stay:"已訂房", stay_missing:"未訂房"};
+const TYPE_REV = {"景點":"spot", "已訂房":"stay", "未訂房":"stay_missing"};
+const IMG = {
+  "聖芭芭拉教堂":"https://upload.wikimedia.org/wikipedia/commons/c/c7/KUTNA_HORA_%28js%29_11.jpg",
+  "查理大橋":"https://upload.wikimedia.org/wikipedia/commons/2/22/Prague_07-2016_view_from_Lesser_Town_Tower_of_Charles_Bridge_img3.jpg",
+  "跳舞的房子":"https://upload.wikimedia.org/wikipedia/commons/9/97/Tanzendes_Haus_2023.jpg",
+  "老城廣場＋天文鐘":"https://upload.wikimedia.org/wikipedia/commons/4/44/Prague_07-2016_View_from_Old_Town_Hall_Tower_img3.jpg",
+  "佩特任觀景塔":"https://upload.wikimedia.org/wikipedia/commons/e/e8/Pet%C5%99%C3%ADnsk%C3%A1_rozhledna%2C_Prague.jpg",
+  "布拉格城堡":"https://upload.wikimedia.org/wikipedia/commons/5/5e/Karl%C5%AFv_most_Praha%2C_Star%C3%A9_M%C4%9Bsto_20170810_007.jpg",
+  "人骨教堂":"https://upload.wikimedia.org/wikipedia/commons/a/ab/Kostnice_Sedlec.JPG",
+  "聖維特主教座堂":"https://upload.wikimedia.org/wikipedia/commons/f/f4/PragueCathedral03.jpg",
+  "伏爾塔瓦河遊船":"https://upload.wikimedia.org/wikipedia/commons/5/50/Prague_skyline_view.jpg",
+  "住宿·CK切爾尼采公寓":"https://upload.wikimedia.org/wikipedia/commons/6/63/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg",
+  "紅頂教堂（聖巴托洛繆）":"https://upload.wikimedia.org/wikipedia/commons/5/59/K%C3%B6nigsee_in_Bayern.jpg",
+  "哈修塔特湖區":"https://upload.wikimedia.org/wikipedia/commons/b/b0/Hallstatt_-_Zentrum_.JPG",
+  "哈修塔特觀景台":"https://upload.wikimedia.org/wikipedia/commons/b/b0/Hallstatt_-_Zentrum_.JPG",
+  "鷹巢":"https://upload.wikimedia.org/wikipedia/commons/a/ad/4_Kehlsteinhaus_Orl%C3%AD_hn%C3%ADzdo_2026.jpg",
+  "國王湖":"https://upload.wikimedia.org/wikipedia/commons/5/59/K%C3%B6nigsee_in_Bayern.jpg",
+  "上湖步道":"https://upload.wikimedia.org/wikipedia/commons/e/ec/Obersee_9.jpg",
+  "皮爾森啤酒廠":"https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png",
+  "住宿·皮爾森萬怡酒店":"https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png",
+  "薩爾斯堡老城":"https://upload.wikimedia.org/wikipedia/commons/9/91/Salzburg_%2848489551981%29.jpg",
+  "彩繪塔樓":"https://upload.wikimedia.org/wikipedia/commons/4/4f/%C4%8Cesk%C3%BD_Krumlov%2C_z%C3%A1mek_cel%C3%BD_z_vyhl%C3%ADdky.jpg",
+  "卡爾什特因城堡":"https://upload.wikimedia.org/wikipedia/commons/c/c9/Burg_Karlstein_-_Karl%C5%A1tejn_-_panoramio.jpg",
+  "住宿·薩爾斯堡奧伊根多夫":"https://upload.wikimedia.org/wikipedia/commons/3/34/Eugendorf_%28Zentrum%29.JPG",
+  "住宿·布拉格安德區公寓":"https://upload.wikimedia.org/wikipedia/commons/a/a7/Prague_%286365119737%29.jpg",
+  "布拉格機場（還車）":"https://upload.wikimedia.org/wikipedia/commons/a/a7/Prague_%286365119737%29.jpg",
+  "CK小鎮古城":"https://upload.wikimedia.org/wikipedia/commons/6/63/Blick_auf_das_Stadtzentrum_von_Krumau_%282026%29.jpg",
+  "皮爾森市區":"https://upload.wikimedia.org/wikipedia/commons/7/74/Plze%C5%88_Montage_I.png"
+};
+
+function buildEditor(){
+  const root = document.getElementById('editGroups');
+  root.innerHTML = '';
+  const days = [...new Set(PLACES.map(p=>p.day))];
+  days.sort((a,b)=>{
+    const na=(typeof a==='number')?a:NaN, nb=(typeof b==='number')?b:NaN;
+    if(isNaN(na)&&isNaN(nb)) return String(a).localeCompare(String(b));
+    if(isNaN(na)) return 1; if(isNaN(nb)) return -1;
+    return na-nb;
+  });
+  days.forEach(day=>{
+    const items = PLACES.map((p,i)=>({p,i})).filter(o=>o.p.day===day);
+    const grp = document.createElement('div');
+    grp.className='day-group';
+    const label = (typeof day==='number')?('Day '+day):(day===''?'未排定':'Day '+day);
+    grp.innerHTML = '<div class="day-head"><span>'+label+'</span><span class="cnt">'+items.length+' 筆</span></div>';
+    const bodyEl = document.createElement('div'); bodyEl.className='day-body';
+    items.forEach(({p,i})=>{
+      const row = document.createElement('div'); row.className='pl-row';
+      row.innerHTML =
+        '<input class="i-name" data-f="name" data-i="'+i+'" value="'+escAttr(p.name)+'" placeholder="名稱">'+
+        '<input class="i-lat" data-f="lat" data-i="'+i+'" value="'+p.lat+'" placeholder="緯度">'+
+        '<input class="i-lng" data-f="lng" data-i="'+i+'" value="'+p.lng+'" placeholder="經度">'+
+        '<select class="i-type" data-f="type" data-i="'+i+'">'+
+          Object.entries(TYPE_MAP).map(([k,v])=>'<option value="'+k+'" '+(p.type===k?'selected':'')+'>'+v+'</option>').join('')+
+        '</select>'+
+        '<input class="i-note" data-f="note" data-i="'+i+'" value="'+escAttr(p.note||'')+'" placeholder="備註">'+
+        '<button class="btn-red i-del" onclick="delRow('+i+')">✕</button>';
+      bodyEl.appendChild(row);
+    });
+    const addBtn = document.createElement('button');
+    addBtn.className='btn-ghost add-day';
+    addBtn.textContent='＋ 本日加一筆';
+    addBtn.onclick = ()=>addRow(day);
+    bodyEl.appendChild(addBtn);
+    grp.appendChild(bodyEl);
+    root.appendChild(grp);
+  });
+}
+function escAttr(s){ return String(s).replace(/"/g,'').replace(/</g,'&lt;'); }
+
+function collectPlaces(){
+  const out = [];
+  document.querySelectorAll('#editGroups .pl-row').forEach(row=>{
+    const i = +row.querySelector('[data-f="name"]').dataset.i;
+    const get = f => row.querySelector('[data-f="'+f+'"]').value.trim();
+    const lat = parseFloat(get('lat')), lng = parseFloat(get('lng'));
+    if(!get('name') || isNaN(lat) || isNaN(lng)) return;
+    const day = (PLACES[i]!==undefined) ? PLACES[i].day : '';
+    out.push({name:get('name'), lat, lng, type:TYPE_REV[get('type')]||'spot', day:day, note:get('note')});
+  });
+  return out;
+}
+
+function applyEdits(){
+  try{
+    const data = collectPlaces();
+    if(!data.length) throw new Error("沒有有效的地點（名稱/緯度/經度都要填）");
+    PLACES.length = 0; data.forEach(d=>PLACES.push(d));
+    render();
+    setMsg("✅ 已套用，"+PLACES.length+" 個地點", false);
+  }catch(e){ setMsg("❌ "+e.message, true); }
+}
+function addRow(day){
+  const d = (day===undefined || day==='') ? maxDay() : day;
+  PLACES.push({name:"新地點", lat:50.0, lng:14.0, type:"spot", day:d, note:""});
+  buildEditor();
+  setMsg("已新增一筆（"+((typeof d==='number')?('Day '+d):'未排定')+"），請填寫後按「套用變更」", false);
+}
+function maxDay(){ const ds=PLACES.map(p=>p.day).filter(x=>typeof x==='number'); return ds.length?Math.max(...ds):7; }
+function delRow(i){
+  PLACES.splice(i,1); buildEditor();
+  setMsg("已刪除一筆，按「套用變更」生效", false);
+}
+function resetEdits(){ location.reload(); }
+function setMsg(t,err){ const m=document.getElementById('msg'); m.textContent=t; m.style.color=err?'#c0392b':'#27ae60'; }
+
+async function addByAddress(){
+  const q = document.getElementById('addr').value.trim();
+  if(!q){ setMsg("請輸入地址", true); return; }
+  setMsg("查詢中…", false);
+  try{
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(q));
+    const j = await r.json();
+    if(!j.length){ setMsg("找不到："+q, true); return; }
+    PLACES.push({name:q, lat:+j[0].lat, lng:+j[0].lon, type:"spot", day:maxDay(), note:"使用者新增"});
+    buildEditor();
+    setMsg("✅ 已加入："+q+"（按「套用變更」生效）", false);
+  }catch(e){ setMsg("❌ 查詢失敗（需網路）："+e.message, true); }
+}
+
+function downloadMap(){
+  try{
+    const html = document.documentElement.outerHTML;
+    const newPlaces = "/* ===PLACES_START=== */\nconst PLACES = "+JSON.stringify(PLACES,null,2)+";\n/* ===PLACES_END=== */";
+    const newRoute  = "/* ===ROUTE_START=== */\nconst ROUTE = "+JSON.stringify(ROUTE,null,2)+";\n/* ===ROUTE_END=== */";
+    let out = html.replace(/\/\* ===PLACES_START=== \*\/[\s\S]*?\/\* ===PLACES_END=== \*\//, newPlaces);
+    out = out.replace(/\/\* ===ROUTE_START=== \*\/[\s\S]*?\/\* ===ROUTE_END=== \*\//, newRoute);
+    const blob = new Blob([out], {type:'text/html'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'map_edited.html';
+    a.click();
+    setMsg("⬇️ 已下載 map_edited.html（含最新編輯）", false);
+  }catch(e){ setMsg("❌ 下載失敗："+e.message, true); }
+}
+
+// init
+buildEditor();
+render();
+</script>
+</body>
+</html>

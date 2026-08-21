@@ -127,7 +127,7 @@ for d in days:
         remote = IMG.get(p['name'],'')
         img_tag = ''
         if local:
-            fb = f' this.onerror=null;this.src="{esc(remote)}"' if remote else ''
+            fb = f"this.onerror=null;this.src='{remote}'" if remote else ''
             img_tag = f'<img src="{esc(local)}" alt="{esc(p["name"])}" loading="lazy" onerror="{fb}">'
         elif remote:
             img_tag = f'<img src="{esc(remote)}" alt="{esc(p["name"])}" loading="lazy">'
